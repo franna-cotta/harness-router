@@ -6,8 +6,13 @@ from typing import Protocol
 
 import httpx
 
-from .config import OpenRouterConfig
-from .errors import InvalidProviderResponse, ProviderError, ProviderTimeoutError
+from .config import AzureFoundryConfig, OpenRouterConfig
+from .errors import (
+    InvalidProviderResponse,
+    ProviderError,
+    ProviderTimeoutError,
+    RouterConfigurationError,
+)
 from .models import ChoiceDecision
 
 
@@ -56,6 +61,10 @@ class OpenRouterJevProvider:
                 keepalive_expiry=30.0,
             ),
         )
+        self._provider_name = "OpenRouter Jev"
+        self._api_key_header = "Authorization"
+        self._api_key_prefix = "Bearer "
+        self._api_key_label = "OpenRouter API key"
 
     @property
     def requests_made(self) -> int:
@@ -116,7 +125,7 @@ class OpenRouterJevProvider:
             response = await self._client.post(
                 self._base_url,
                 headers={
-                    "Authorization": f"Bearer {self._api_key}",
+                    self._api_key_header: f"{self._api_key_prefix}{self._api_key}",
                     "Content-Type": "application/json",
                 },
                 json=payload,
@@ -124,22 +133,22 @@ class OpenRouterJevProvider:
             response.raise_for_status()
         except httpx.TimeoutException:
             # Do not retain the httpx exception as __cause__: it owns the request object,
-            # including the Authorization header.
-            raise ProviderTimeoutError("OpenRouter Jev request timed out") from None
+            # including request headers with credentials.
+            raise ProviderTimeoutError(f"{self._provider_name} request timed out") from None
         except httpx.HTTPStatusError as exc:
             body = self._redact_api_key(exc.response.text[:500])
             status_code = exc.response.status_code
             raise ProviderError(
-                f"OpenRouter Jev returned HTTP {status_code}: {body}"
+                f"{self._provider_name} returned HTTP {status_code}: {body}"
             ) from None
         except httpx.HTTPError as exc:
             message = self._redact_api_key(str(exc))
-            raise ProviderError(f"OpenRouter Jev request failed: {message}") from None
+            raise ProviderError(f"{self._provider_name} request failed: {message}") from None
 
         try:
             data = response.json()
         except ValueError as exc:
-            raise InvalidProviderResponse("OpenRouter response was not valid JSON") from exc
+            raise InvalidProviderResponse(f"{self._provider_name} response was not valid JSON") from exc
 
         answer = data.get("answers", {}).get("route")
         if not isinstance(answer, dict) or answer.get("type") != "choice":
@@ -178,7 +187,7 @@ class OpenRouterJevProvider:
         serialized = json.dumps(payload, ensure_ascii=False, default=str)
         if self._api_key and self._api_key in serialized:
             raise ProviderError(
-                "refusing to send a routing payload containing the OpenRouter API key"
+                f"refusing to send a routing payload containing the {self._api_key_label}"
             )
 
     def _redact_api_key(self, value: str) -> str:
@@ -195,3 +204,59 @@ class OpenRouterJevProvider:
 
     async def __aexit__(self, *_: object) -> None:
         await self.aclose()
+
+
+class AzureFoundryDecisionProvider(OpenRouterJevProvider):
+    """Decision provider backed by Azure Foundry's Decision API."""
+
+    def __init__(
+        self,
+        *,
+        api_key: str,
+        model: str = "Decision-1",
+        base_url: str = "https://aivoice-foundry-sweden.services.ai.azure.com/models/providers/microsoft/v1/systemone",
+        timeout_seconds: float = 5.0,
+        client: httpx.AsyncClient | None = None,
+    ) -> None:
+        super().__init__(
+            api_key=api_key,
+            model=model,
+            base_url=base_url,
+            timeout_seconds=timeout_seconds,
+            client=client,
+        )
+        self._provider_name = "Azure Foundry Decision"
+        self._api_key_header = "api-key"
+        self._api_key_prefix = ""
+        self._api_key_label = "Azure API key"
+
+    @classmethod
+    def from_config(
+        cls,
+        config: AzureFoundryConfig,
+        *,
+        client: httpx.AsyncClient | None = None,
+    ) -> AzureFoundryDecisionProvider:
+        return cls(
+            api_key=config.api_key(),
+            model=config.model_name(),
+            base_url=config.request_url(),
+            timeout_seconds=config.timeout_seconds,
+            client=client,
+        )
+
+
+def provider_from_backend(*, backend: str, timeout_seconds: float = 5.0) -> OpenRouterJevProvider:
+    if backend == "openrouter":
+        return OpenRouterJevProvider.from_config(OpenRouterConfig(timeout_seconds=timeout_seconds))
+    if backend == "azure_foundry":
+        return AzureFoundryDecisionProvider.from_config(AzureFoundryConfig(timeout_seconds=timeout_seconds))
+    raise RouterConfigurationError(f"unsupported provider backend: {backend}")
+
+
+def missing_key_reason_for_backend(backend: str) -> str:
+    if backend == "azure_foundry":
+        return "missing_azure_openai_api_key"
+    if backend == "openrouter":
+        return "missing_openrouter_api_key"
+    return "invalid_provider_backend"

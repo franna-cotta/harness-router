@@ -112,6 +112,7 @@ async def test_mcp_lists_route_without_openrouter_key(monkeypatch) -> None:
 @pytest.mark.asyncio
 async def test_mcp_missing_key_falls_back_on_route(monkeypatch) -> None:
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.setenv("HARNESS_ROUTER_PROVIDER", "openrouter")
     server = create_mcp_server()
 
     async with Client(server) as client:
@@ -132,6 +133,61 @@ async def test_mcp_missing_key_falls_back_on_route(monkeypatch) -> None:
         "confidence": 0.0,
         "fallback": True,
         "reason": "missing_openrouter_api_key",
+    }
+
+
+@pytest.mark.asyncio
+async def test_mcp_missing_azure_key_falls_back_on_route(monkeypatch) -> None:
+    monkeypatch.setenv("HARNESS_ROUTER_PROVIDER", "azure_foundry")
+    monkeypatch.delenv("AZURE_OPENAI_API_KEY", raising=False)
+    server = create_mcp_server()
+
+    async with Client(server) as client:
+        result = await client.call_tool(
+            "route",
+            {
+                "goal": "Choose the next action",
+                "tools": [
+                    {"name": "read_file", "risk": "low"},
+                    {"name": "search_code", "risk": "low"},
+                ],
+            },
+        )
+
+    assert result.is_error is False
+    assert result.structured_content == {
+        "tool": None,
+        "confidence": 0.0,
+        "fallback": True,
+        "reason": "missing_azure_openai_api_key",
+    }
+
+
+@pytest.mark.asyncio
+async def test_mcp_invalid_provider_backend_falls_back_with_specific_reason(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("HARNESS_ROUTER_PROVIDER", "azure")
+    server = create_mcp_server()
+
+    async with Client(server) as client:
+        result = await client.call_tool(
+            "route",
+            {
+                "goal": "Choose the next action",
+                "tools": [
+                    {"name": "read_file", "risk": "low"},
+                    {"name": "search_code", "risk": "low"},
+                ],
+            },
+        )
+
+    assert result.is_error is False
+    assert result.structured_content == {
+        "tool": None,
+        "confidence": 0.0,
+        "fallback": True,
+        "reason": "invalid_provider_backend",
     }
 
 

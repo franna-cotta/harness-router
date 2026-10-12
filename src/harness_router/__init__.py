@@ -6,7 +6,7 @@ from .adapters import (
     infer_risk,
     normalize_tools,
 )
-from .config import OpenRouterConfig, RoutingConfig
+from .config import AzureFoundryConfig, OpenRouterConfig, RoutingConfig, provider_backend
 from .errors import (
     InvalidProviderResponse,
     PolicyDeniedError,
@@ -36,13 +36,20 @@ from .mcts import (
     SimulatedStep,
 )
 from .policy import DefaultExecutionPolicy
-from .provider import DecisionProvider, OpenRouterJevProvider
+from .provider import (
+    AzureFoundryDecisionProvider,
+    DecisionProvider,
+    OpenRouterJevProvider,
+    provider_from_backend,
+)
 from .router import JevToolRouter
 from .session import RoutingSession
 
 __all__ = [
     "ActionFingerprint",
     "ActionSummary",
+    "AzureFoundryConfig",
+    "AzureFoundryDecisionProvider",
     "ChoiceDecision",
     "DecisionProvider",
     "DefaultExecutionPolicy",
@@ -81,4 +88,6 @@ __all__ = [
     "infer_category",
     "infer_risk",
     "normalize_tools",
+    "provider_backend",
+    "provider_from_backend",
 ]

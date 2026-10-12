@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
@@ -9,11 +10,15 @@ from typing import Literal
 from mcp.server.mcpserver import Context, MCPServer
 from pydantic import BaseModel, ConfigDict, Field
 
-from .config import OpenRouterConfig, RoutingConfig
+from .config import RoutingConfig, provider_backend
 from .errors import RouterConfigurationError
 from .mcts import MCTSConfig, MCTSToolRouter, SimulatedStep
 from .models import HarnessState, RiskLevel, RoutingMode, ToolDescriptor
-from .provider import OpenRouterJevProvider
+from .provider import (
+    OpenRouterJevProvider,
+    missing_key_reason_for_backend,
+    provider_from_backend,
+)
 from .router import JevToolRouter
 
 
@@ -78,6 +83,7 @@ class MCTSRouteResult(BaseModel):
 class ServerContext:
     router: JevToolRouter | None = None
     provider: OpenRouterJevProvider | None = None
+    provider_backend: str = "openrouter"
     init_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
 
@@ -114,9 +120,11 @@ async def _get_router(context: ServerContext) -> JevToolRouter:
         if context.router is not None:
             return context.router
 
-        provider = OpenRouterJevProvider.from_config(
-            OpenRouterConfig(timeout_seconds=2.0)
-        )
+        context.provider_backend = os.getenv("HARNESS_ROUTER_PROVIDER", "openrouter").strip().lower()
+        backend = provider_backend(context.provider_backend)
+        context.provider_backend = backend
+        provider = provider_from_backend(backend=backend, timeout_seconds=2.0)
+
         context.provider = provider
         context.router = _fast_router(provider)
         return context.router
@@ -207,7 +215,7 @@ def create_mcp_server(*, router: JevToolRouter | None = None) -> MCPServer[Serve
     """Create the native harness-router MCP server.
 
     Provider initialization is lazy so MCP initialization and tools/list do not
-    depend on OPENROUTER_API_KEY being present in the host environment. The key
+    depend on provider API keys being present in the host environment. The key
     is required only when the fast route tool or an MCTS Jev prior is requested.
     """
 
@@ -248,7 +256,9 @@ def create_mcp_server(*, router: JevToolRouter | None = None) -> MCPServer[Serve
                 tool=None,
                 confidence=0.0,
                 fallback=True,
-                reason="missing_openrouter_api_key",
+                reason=missing_key_reason_for_backend(
+                    ctx.request_context.lifespan_context.provider_backend
+                ),
             )
 
         decision = await active_router.route(

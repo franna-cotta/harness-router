@@ -3,7 +3,13 @@ import json
 import httpx
 import pytest
 
-from harness_router import InvalidProviderResponse, OpenRouterJevProvider, ProviderError
+from harness_router import (
+    AzureFoundryConfig,
+    AzureFoundryDecisionProvider,
+    InvalidProviderResponse,
+    OpenRouterJevProvider,
+    ProviderError,
+)
 
 
 @pytest.mark.asyncio
@@ -140,4 +146,80 @@ async def test_provider_redacts_api_key_from_http_error() -> None:
     assert "[REDACTED]" in rendered
     assert exc_info.value.__cause__ is None
 
+    await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_azure_foundry_payload_and_response() -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert str(request.url) == "https://azure.example/models/providers/microsoft/v1/systemone"
+        assert request.headers["api-key"] == "secret"
+        payload = json.loads(request.content)
+        assert payload["model"] == "Decision-1"
+        assert payload["state"] == {"goal": "inspect"}
+        return httpx.Response(
+            200,
+            json={
+                "answers": {
+                    "route": {
+                        "type": "choice",
+                        "choice": "read_file",
+                        "probabilities": {"read_file": 0.97, "__fallback__": 0.03},
+                        "confidence": 0.97,
+                    }
+                }
+            },
+        )
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    provider = AzureFoundryDecisionProvider(
+        api_key="secret",
+        base_url="https://azure.example/models/providers/microsoft/v1/systemone",
+        client=client,
+    )
+    decision = await provider.choose(
+        state='{"goal":"inspect"}',
+        instructions="Choose",
+        criteria={"read_file": "Read a file", "__fallback__": "Fallback"},
+    )
+    assert decision.choice == "read_file"
+    assert decision.confidence == 0.97
+    await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_azure_foundry_model_can_be_overridden_by_env(monkeypatch) -> None:
+    monkeypatch.setenv("AZURE_OPENAI_API_KEY", "secret")
+    monkeypatch.setenv("AZURE_DECISION_MODEL", "Microsoft-Decision-1")
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.content)
+        assert payload["model"] == "Microsoft-Decision-1"
+        return httpx.Response(
+            200,
+            json={
+                "answers": {
+                    "route": {
+                        "type": "choice",
+                        "choice": "read_file",
+                        "probabilities": {"read_file": 1.0, "__fallback__": 0.0},
+                        "confidence": 1.0,
+                    }
+                }
+            },
+        )
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    provider = AzureFoundryDecisionProvider.from_config(
+        AzureFoundryConfig(url="https://azure.example/models/providers/microsoft/v1/systemone"),
+        client=client,
+    )
+
+    decision = await provider.choose(
+        state='{"goal":"inspect"}',
+        instructions="Choose",
+        criteria={"read_file": "Read a file", "__fallback__": "Fallback"},
+    )
+
+    assert decision.choice == "read_file"
     await client.aclose()

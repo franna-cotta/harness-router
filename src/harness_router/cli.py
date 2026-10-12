@@ -3,9 +3,10 @@ import argparse, asyncio, json, os, sys
 from importlib.metadata import PackageNotFoundError, version
 from typing import Any, Mapping, Sequence
 from .adapters import GenericToolAdapter
-from .config import OpenRouterConfig, RoutingConfig
+from .config import RoutingConfig, provider_backend
+from .errors import RouterConfigurationError
 from .models import HarnessState, RoutingMode
-from .provider import OpenRouterJevProvider
+from .provider import provider_from_backend
 from .router import JevToolRouter
 
 def package_version() -> str:
@@ -38,11 +39,12 @@ def _request_payload(args:argparse.Namespace)->dict[str,Any]:
     return {"goal":args.goal,"observation":args.observation,"last_action":args.last_action,"tools":_load_tools(args.tools_json),
             "mode":args.mode,"direct_threshold":args.direct_threshold,"fallback_threshold":args.fallback_threshold,
             "hierarchical_threshold":args.hierarchical_threshold,"route_cache_size":0 if args.no_cache else 128,
-            "obvious_cache_size":0 if args.no_cache else 256}
+            "obvious_cache_size":0 if args.no_cache else 256,"provider_backend":provider_backend()}
 
 async def _run_direct(request:Mapping[str,Any])->tuple[dict[str,object],int]:
     adapter=GenericToolAdapter(); tools=[adapter.normalize(t) for t in request["tools"]]
-    provider=OpenRouterJevProvider.from_config(OpenRouterConfig())
+    backend=provider_backend(str(request.get("provider_backend","openrouter")))
+    provider=provider_from_backend(backend=backend)
     router=JevToolRouter(provider,RoutingConfig(mode=RoutingMode(str(request["mode"])),
         direct_execution_threshold=float(request["direct_threshold"]),fallback_threshold=float(request["fallback_threshold"]),
         hierarchical_threshold=int(request["hierarchical_threshold"]),route_cache_size=int(request.get("route_cache_size",128)),
@@ -51,11 +53,20 @@ async def _run_direct(request:Mapping[str,Any])->tuple[dict[str,object],int]:
         decision=await router.route(HarnessState(goal=str(request["goal"]),observation=request["observation"],last_action=request["last_action"]),tools)
     finally: await provider.aclose()
     return {"tool":decision.tool,"category":decision.category,"confidence":round(decision.confidence,4),
-            "fallback":decision.fallback,"fallback_reason":decision.fallback_reason,"provider":"openrouter",
+            "fallback":decision.fallback,"fallback_reason":decision.fallback_reason,"provider":backend,
             "provider_requests":provider.requests_made},(0 if provider.requests_made>0 else 2)
 
 async def _run_route(args:argparse.Namespace)->int:
-    request=_request_payload(args); response=None
+    try:
+        request=_request_payload(args)
+    except RouterConfigurationError:
+        response={"tool":None,"category":None,"confidence":0.0,"fallback":True,
+                  "fallback_reason":"invalid_provider_backend",
+                  "provider":os.environ.get("HARNESS_ROUTER_PROVIDER","openrouter"),
+                  "provider_requests":0}
+        print(json.dumps(response,ensure_ascii=False,indent=2 if args.verbose else None,sort_keys=bool(args.verbose)))
+        return 2
+    response=None
     if not args.no_daemon and os.environ.get("HARNESS_ROUTER_NO_DAEMON")!="1":
         try:
             from .daemon import ensure_daemon,request_daemon
@@ -77,9 +88,10 @@ async def _run_mcts(raw:str)->dict[str,object]:
     if not root_id: raise SystemExit("root_state is required")
     env=_GraphEnvironment(states,transitions); root=env.state(root_id)
     provider=None; policy=None
+    backend=provider_backend(str(graph.get("provider_backend",os.environ.get("HARNESS_ROUTER_PROVIDER","openrouter"))))
     if bool(graph.get("use_jev_prior",True)):
         try:
-            provider=OpenRouterJevProvider.from_config(OpenRouterConfig(timeout_seconds=2.0))
+            provider=provider_from_backend(backend=backend,timeout_seconds=2.0)
             policy=JevToolRouter(provider,RoutingConfig(mode=RoutingMode.HYBRID,direct_execution_threshold=0.72,
                 fallback_threshold=0.72,hierarchical_threshold=48,description_limit=96,history_limit=1,state_field_limit=400,constraint_limit=2))
         except Exception: policy=None

@@ -29,6 +29,15 @@ uv tool install --force --with 'mcp>=2,<3' \
 export OPENROUTER_API_KEY="your-key"
 ```
 
+To route through Azure Foundry instead of OpenRouter, keep the same CLI and set:
+
+```bash
+export HARNESS_ROUTER_PROVIDER="azure_foundry"
+export AZURE_OPENAI_API_KEY="your-key"
+export AZURE_ENDPOINT="https://aivoice-foundry-sweden.services.ai.azure.com/models"
+export AZURE_DECISION_MODEL="Decision-1"
+```
+
 The package exposes `har`, `harness-router`, and `harness-router-mcp`.
 `har` and `harness-router` are aliases for the same CLI. The default provider model
 is `typesafe/jev-1.13`.

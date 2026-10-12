@@ -561,7 +561,10 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Updated {len(changed)} files; previous contents are saved in *{BACKUP_SUFFIX}.")
     else:
         print(f"{names} hooks are already up to date in {args.project.resolve()}")
-    print("Routing uses the harness-router CLI on PATH and OPENROUTER_API_KEY.")
+    print(
+        "Routing uses the harness-router CLI on PATH and OPENROUTER_API_KEY "
+        "(or AZURE_OPENAI_API_KEY when HARNESS_ROUTER_PROVIDER=azure_foundry)."
+    )
     if bun is not None:
         print("ohmypi TypeScript dependencies are installed and typecheck passed.")
     elif "ohmypi" in providers:

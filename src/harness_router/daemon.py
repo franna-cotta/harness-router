@@ -12,9 +12,9 @@ from pathlib import Path
 from typing import Any
 
 from .adapters import GenericToolAdapter
-from .config import OpenRouterConfig, RoutingConfig
+from .config import RoutingConfig, provider_backend
 from .models import HarnessState, RoutingMode
-from .provider import OpenRouterJevProvider
+from .provider import OpenRouterJevProvider, provider_from_backend
 from .router import JevToolRouter
 
 _MAX_REQUEST = 512 * 1024
@@ -87,9 +87,11 @@ async def request_daemon(request: Mapping[str, object]) -> dict[str, object] | N
 async def _handle(
     reader: asyncio.StreamReader,
     writer: asyncio.StreamWriter,
-    provider: OpenRouterJevProvider,
+    providers: dict[str, OpenRouterJevProvider],
+    provider_lock: asyncio.Lock,
     routers: dict[tuple[object, ...], JevToolRouter],
 ) -> None:
+    request: object | None = None
     try:
         line = await reader.readline()
         if len(line) > _MAX_REQUEST:
@@ -97,8 +99,15 @@ async def _handle(
         request = json.loads(line)
         if not isinstance(request, dict):
             raise ValueError("request must be an object")
+        backend = provider_backend(str(request.get("provider_backend", "openrouter")))
+        provider = await _provider_for_backend(
+            backend=backend,
+            providers=providers,
+            provider_lock=provider_lock,
+        )
 
         key = (
+            backend,
             request.get("mode", "hybrid"),
             float(request.get("direct_threshold", 0.85)),
             float(request.get("fallback_threshold", 0.60)),
@@ -112,13 +121,13 @@ async def _handle(
             router = JevToolRouter(
                 provider,
                 RoutingConfig(
-                    mode=RoutingMode(str(key[0])),
-                    direct_execution_threshold=float(key[1]),
-                    fallback_threshold=float(key[2]),
-                    hierarchical_threshold=int(key[3]),
-                    route_cache_size=int(key[4]),
-                    obvious_cache_size=int(key[5]),
-                    obvious_cache_ttl_seconds=float(key[6]),
+                    mode=RoutingMode(str(key[1])),
+                    direct_execution_threshold=float(key[2]),
+                    fallback_threshold=float(key[3]),
+                    hierarchical_threshold=int(key[4]),
+                    route_cache_size=int(key[5]),
+                    obvious_cache_size=int(key[6]),
+                    obvious_cache_ttl_seconds=float(key[7]),
                 ),
             )
             routers[key] = router
@@ -145,7 +154,7 @@ async def _handle(
             "confidence": round(decision.confidence, 4),
             "fallback": decision.fallback,
             "fallback_reason": decision.fallback_reason,
-            "provider": "openrouter",
+            "provider": backend,
             "provider_requests": provider_requests,
             "cache_hit": provider_requests == 0 and not decision.fallback,
             "daemon": True,
@@ -157,7 +166,7 @@ async def _handle(
             "confidence": 0.0,
             "fallback": True,
             "fallback_reason": f"daemon_error:{type(exc).__name__}",
-            "provider": "openrouter",
+            "provider": request.get("provider_backend", os.environ.get("HARNESS_ROUTER_PROVIDER", "openrouter")) if isinstance(request, dict) else "openrouter",
             "provider_requests": 0,
             "daemon": True,
         }
@@ -178,10 +187,11 @@ async def _serve() -> None:
     except FileNotFoundError:
         pass
 
-    provider = OpenRouterJevProvider.from_config(OpenRouterConfig())
+    providers: dict[str, OpenRouterJevProvider] = {}
+    provider_lock = asyncio.Lock()
     routers: dict[tuple[object, ...], JevToolRouter] = {}
     server = await asyncio.start_unix_server(
-        lambda reader, writer: _handle(reader, writer, provider, routers),
+        lambda reader, writer: _handle(reader, writer, providers, provider_lock, routers),
         path=str(path),
         limit=_MAX_REQUEST,
     )
@@ -192,11 +202,29 @@ async def _serve() -> None:
     finally:
         server.close()
         await server.wait_closed()
-        await provider.aclose()
+        for provider in providers.values():
+            await provider.aclose()
         try:
             path.unlink()
         except FileNotFoundError:
             pass
+
+
+async def _provider_for_backend(
+    *,
+    backend: str,
+    providers: dict[str, OpenRouterJevProvider],
+    provider_lock: asyncio.Lock,
+) -> OpenRouterJevProvider:
+    provider = providers.get(backend)
+    if provider is not None:
+        return provider
+    async with provider_lock:
+        provider = providers.get(backend)
+        if provider is None:
+            provider = provider_from_backend(backend=backend)
+            providers[backend] = provider
+        return provider
 
 
 def _is_alive(path: Path) -> bool:

@@ -77,3 +77,42 @@ class OpenRouterConfig:
                 f"missing OpenRouter API key in environment variable {self.api_key_env}"
             )
         return value
+
+
+@dataclass(frozen=True, slots=True)
+class AzureFoundryConfig:
+    model: str = "Decision-1"
+    model_env: str = "AZURE_DECISION_MODEL"
+    url: str | None = None
+    endpoint_env: str = "AZURE_ENDPOINT"
+    endpoint_default: str = "https://aivoice-foundry-sweden.services.ai.azure.com/models"
+    endpoint_path: str = "/providers/microsoft/v1/systemone"
+    api_key_env: str = "AZURE_OPENAI_API_KEY"
+    timeout_seconds: float = 5.0
+
+    def request_url(self) -> str:
+        if self.url:
+            return self.url
+        endpoint = os.getenv(self.endpoint_env, self.endpoint_default).rstrip("/")
+        return f"{endpoint}{self.endpoint_path}"
+
+    def api_key(self) -> str:
+        value = os.getenv(self.api_key_env)
+        if not value:
+            raise RouterConfigurationError(
+                f"missing Azure API key in environment variable {self.api_key_env}"
+            )
+        return value
+
+    def model_name(self) -> str:
+        return os.getenv(self.model_env, self.model)
+
+
+def provider_backend(value: str | None = None) -> str:
+    candidate = (value if value is not None else os.getenv("HARNESS_ROUTER_PROVIDER", "openrouter"))
+    backend = candidate.strip().lower()
+    if backend in {"openrouter", "azure_foundry"}:
+        return backend
+    raise RouterConfigurationError(
+        "HARNESS_ROUTER_PROVIDER must be either 'openrouter' or 'azure_foundry'"
+    )
