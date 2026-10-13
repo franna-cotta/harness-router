@@ -189,7 +189,7 @@ async def test_azure_foundry_payload_and_response() -> None:
 
 @pytest.mark.asyncio
 async def test_azure_foundry_model_can_be_overridden_by_env(monkeypatch) -> None:
-    monkeypatch.setenv("AZURE_OPENAI_API_KEY", "secret")
+    monkeypatch.setenv("AZURE_FOUNDRY_API_KEY", "secret")
     monkeypatch.setenv("AZURE_DECISION_MODEL", "Microsoft-Decision-1")
 
     async def handler(request: httpx.Request) -> httpx.Response:

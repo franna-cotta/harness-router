@@ -256,7 +256,7 @@ def provider_from_backend(*, backend: str, timeout_seconds: float = 5.0) -> Open
 
 def missing_key_reason_for_backend(backend: str) -> str:
     if backend == "azure_foundry":
-        return "missing_azure_openai_api_key"
+        return "missing_azure_foundry_api_key"
     if backend == "openrouter":
         return "missing_openrouter_api_key"
     return "invalid_provider_backend"

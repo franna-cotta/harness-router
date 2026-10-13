@@ -33,7 +33,7 @@ To route through Azure Foundry instead of OpenRouter, keep the same CLI and set:
 
 ```bash
 export HARNESS_ROUTER_PROVIDER="azure_foundry"
-export AZURE_OPENAI_API_KEY="your-key"
+export AZURE_FOUNDRY_API_KEY="your-key"
 export AZURE_ENDPOINT="https://aivoice-foundry-sweden.services.ai.azure.com/models"
 export AZURE_DECISION_MODEL="Decision-1"
 ```

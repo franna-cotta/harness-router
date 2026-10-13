@@ -139,7 +139,7 @@ async def test_mcp_missing_key_falls_back_on_route(monkeypatch) -> None:
 @pytest.mark.asyncio
 async def test_mcp_missing_azure_key_falls_back_on_route(monkeypatch) -> None:
     monkeypatch.setenv("HARNESS_ROUTER_PROVIDER", "azure_foundry")
-    monkeypatch.delenv("AZURE_OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("AZURE_FOUNDRY_API_KEY", raising=False)
     server = create_mcp_server()
 
     async with Client(server) as client:
@@ -159,7 +159,7 @@ async def test_mcp_missing_azure_key_falls_back_on_route(monkeypatch) -> None:
         "tool": None,
         "confidence": 0.0,
         "fallback": True,
-        "reason": "missing_azure_openai_api_key",
+        "reason": "missing_azure_foundry_api_key",
     }
 
 

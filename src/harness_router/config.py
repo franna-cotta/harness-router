@@ -87,7 +87,7 @@ class AzureFoundryConfig:
     endpoint_env: str = "AZURE_ENDPOINT"
     endpoint_default: str = "https://aivoice-foundry-sweden.services.ai.azure.com/models"
     endpoint_path: str = "/providers/microsoft/v1/systemone"
-    api_key_env: str = "AZURE_OPENAI_API_KEY"
+    api_key_env: str = "AZURE_FOUNDRY_API_KEY"
     timeout_seconds: float = 5.0
 
     def request_url(self) -> str:
