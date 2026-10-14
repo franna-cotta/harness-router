@@ -1,0 +1,139 @@
+#!/usr/bin/env python3
+"""codex PostToolUse -> Harness Router next-decision precompute bridge."""
+from __future__ import annotations
+
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+
+
+ROOT = Path(os.environ.get("HARNESS_ROUTER_PROJECT_DIR") or Path(__file__).resolve().parents[2])
+
+
+def _repo_root(cwd: str) -> Path:
+    current = Path(cwd).resolve()
+    for parent in (current, *current.parents):
+        if (parent / ".git").exists():
+            return parent
+    return current
+
+
+def _catalog(payload: dict, cwd: Path) -> list[dict]:
+    tools = payload.get("tools")
+    if isinstance(tools, list):
+        return tools
+    path = _repo_root(str(cwd)) / ".codex/harness-router-tools.json"
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    tools = value.get("tools", value) if isinstance(value, dict) else value
+    return tools if isinstance(tools, list) else []
+
+
+def _goal(session_id: str, cwd: Path) -> str:
+    path = _repo_root(str(cwd)) / ".harness-router" / "sessions" / f"{session_id}.decision.json"
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return ""
+    return str(value.get("goal") or "").strip()[:1600] if isinstance(value, dict) else ""
+
+
+def main() -> int:
+    try:
+        payload = json.load(sys.stdin)
+    except (OSError, ValueError):
+        payload = {}
+    if not isinstance(payload, dict):
+        print("{}")
+        return 0
+
+    session_id = str(payload.get("session_id") or payload.get("conversationId") or "default")
+    cwd = Path(str(payload.get("cwd") or os.getcwd())).resolve()
+    tools = _catalog(payload, cwd)
+    goal = str(payload.get("goal") or "").strip()[:1600] or _goal(session_id, cwd)
+    if not goal or len(tools) < 2:
+        print("{}")
+        return 0
+
+    tool_name = str(
+        payload.get("tool_name")
+        or (payload.get("toolCall") or {}).get("name")
+        or ""
+    ).strip()
+    response = (
+        payload.get("tool_response")
+        or payload.get("tool_result")
+        or payload.get("toolResult")
+        or payload.get("error")
+        or ""
+    )
+    if not isinstance(response, str):
+        response = json.dumps(response, ensure_ascii=False)
+
+    request = {
+        "harness": "codex",
+        "hook": "PostToolUse",
+        "cwd": cwd,
+        "session_id": session_id,
+        "decision_id": str(payload.get("decision_id") or payload.get("turn_id") or payload.get("stepIdx") or ""),
+        "goal": goal,
+        "observation": response[:4000],
+        "last_action": tool_name or None,
+        "tools": tools,
+    }
+
+    try:
+        proc = subprocess.run(
+            [sys.executable, str(ROOT / "hooks" / "post_tool_use.py")],
+            input=json.dumps(request, ensure_ascii=False),
+            text=True,
+            capture_output=True,
+            timeout=float(os.environ.get("HARNESS_ROUTER_POSTTOOL_TIMEOUT", "4")),
+            cwd=str(cwd),
+            env=os.environ.copy(),
+            check=False,
+        )
+        if proc.stderr:
+            print(proc.stderr.rstrip(), file=sys.stderr)
+
+        try:
+            decision = (
+                json.loads(proc.stdout.strip().splitlines()[0])
+                if proc.stdout.strip()
+                else {}
+            )
+        except (ValueError, TypeError):
+            decision = {}
+
+        selected = decision.get("tool") if isinstance(decision, dict) else None
+        fallback = bool(decision.get("fallback")) if isinstance(decision, dict) else True
+        if isinstance(selected, str) and selected.strip() and not fallback:
+            try:
+                confidence = float(decision.get("confidence", 0.0))
+            except (TypeError, ValueError):
+                confidence = 0.0
+            mode = str(decision.get("routing_mode") or "route")
+            print(json.dumps({
+                "hookSpecificOutput": {
+                    "hookEventName": "PostToolUse",
+                    "additionalContext": (
+                        f"Harness Router selected {selected!r} as the next tool "
+                        f"(confidence {confidence:.3f}, mode {mode}). "
+                        "Use that tool for the next step when it matches the current state."
+                    ),
+                }
+            }, separators=(",", ":")))
+            return 0
+    except (OSError, subprocess.SubprocessError, ValueError):
+        pass
+
+    print("{}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

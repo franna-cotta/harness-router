@@ -1,0 +1,70 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PLUGIN_ROOT/.codex/hooks/pre_decision.py\"",
+            "timeout": 5,
+            "statusMessage": "Precomputing next tool with Harness Router",
+            "additionalContextLimit": 500,
+            "async": false
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PLUGIN_ROOT/.codex/hooks/discover_tools.py\"",
+            "timeout": 5,
+            "statusMessage": "Building Harness Router tool catalog"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PLUGIN_ROOT/.codex/hooks/pre_tool_use.py\"",
+            "timeout": 5,
+            "statusMessage": "Routing tool choice with harness-router"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PLUGIN_ROOT/.codex/hooks/post_tool_use.py\"",
+            "timeout": 5,
+            "statusMessage": "Precomputing next tool after tool result",
+            "async": false
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PLUGIN_ROOT/.codex/hooks/stop.py\"",
+            "timeout": 5,
+            "statusMessage": "Checking Harness Router continuation decision"
+          }
+        ]
+      }
+    ]
+  }
+}

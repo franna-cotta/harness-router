@@ -1,0 +1,20 @@
+{
+  "name": "harness-router",
+  "interface": {
+    "displayName": "Harness Router"
+  },
+  "plugins": [
+    {
+      "name": "harness-router",
+      "source": {
+        "source": "local",
+        "path": "./plugins/harness-router"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    }
+  ]
+}

@@ -1,0 +1,26 @@
+{
+  "name": "harness-router",
+  "version": "2.0.0",
+  "description": "Automatic tool routing hooks with Azure Foundry Decision-1 support.",
+  "author": {
+    "name": "Francesca Carter",
+    "url": "https://github.com/franna-cotta"
+  },
+  "repository": "https://github.com/franna-cotta/harness-router",
+  "license": "MIT",
+  "skills": "./skills/",
+  "hooks": "./hooks/claude-codex-hooks.json",
+  "interface": {
+    "displayName": "Harness Router",
+    "shortDescription": "Automatic tool-choice routing via Jev/Decision backends.",
+    "longDescription": "Installs lifecycle hooks that auto-route ambiguous tool choices. You can still call the MCP tools manually when needed.",
+    "developerName": "Francesca Carter",
+    "category": "Productivity",
+    "capabilities": ["Instructions", "MCP servers", "Lifecycle hooks"],
+    "defaultPrompt": [
+      "Use harness-router to choose among these ambiguous tools.",
+      "Use route_mcts for this side-effect-free graph."
+    ]
+  },
+  "mcpServers": "./.mcp.json"
+}
